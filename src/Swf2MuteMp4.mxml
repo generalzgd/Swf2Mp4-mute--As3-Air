@@ -1,0 +1,511 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009"
+					   xmlns:s="library://ns.adobe.com/flex/spark"
+					   xmlns:mx="library://ns.adobe.com/flex/mx"
+					   width="550" height="400"
+					   applicationComplete="applicationCompleteHandler(event)"
+					   fontSize="12" invoke="invokeHandler(event)"
+					   nativeDragDrop="nativeDragDropHandler(event)"
+					   nativeDragEnter="nativeDragEnterHandler(event)" showStatusBar="false">
+	
+	<fx:Script>
+		<![CDATA[
+			import com.adobe.images.PNGEncoder;
+			import com.codeazur.as3swf.SWF;
+			import com.codeazur.as3swf.tags.TagFileAttributes;
+			import com.codeazur.as3swf.tags.TagSetBackgroundColor;
+			
+			import mx.events.FlexEvent;
+			
+			import zgd.Configer;
+			
+			private var inSwfFilePath:String;
+			private var outMp4FilePath:String;
+			private var tmpDirectoryPath:String;
+			
+			private const SWFExtion:String = "swf";
+			private const MP4Extion:String = "mp4";
+			private const scaleFactor:Number = 1;
+			private const separator:String = "_";
+			//
+			private var frameCount:uint = 0;
+			private var outputWidth:Number = 0;
+			private var outputHeight:Number = 0;
+			private var outputBgColor:uint;
+			private var loadedSwf:MovieClip;
+			private var timer:Timer;
+			private var counter:int;
+			private var offsetMatrix:Matrix = new Matrix();
+			private var process:NativeProcess;
+			private var args:Array;
+			private var bStartFromCmd:Boolean;
+			
+			protected function invokeHandler(event:InvokeEvent):void
+			{
+				// TODO Auto-generated method stub
+				log("arguments: "+ event.arguments.join(","));
+				if(event.arguments.length<1)
+				{
+					//show usage
+					var usage:String = "Command Usage: Swf2MuteMp4 inputFile.swf";
+					log(usage);
+				}
+				else
+				{
+					try
+					{
+						var file:File = new File(event.arguments[0]);
+					} 
+					catch(error:Error) 
+					{
+						log("Not input a swf file!???");
+						return;
+					}
+					
+					if(file)
+					{
+						if(file.exists && !file.isDirectory && file.extension.toLowerCase()==SWFExtion)
+						{
+							bStartFromCmd = true;
+							setInFile(file);
+							startTransform();
+						}
+						else
+						{
+							log("Cannd find a swf file!");
+						}
+					}
+				}
+			}
+			
+			protected function applicationCompleteHandler(event:FlexEvent):void
+			{
+				
+			}
+			
+			protected function nativeDragEnterHandler(event:NativeDragEvent):void
+			{
+				// TODO Auto-generated method stub
+				trace(event);
+				var clip:Clipboard = event.clipboard;
+				if(clip.hasFormat(ClipboardFormats.FILE_LIST_FORMAT))
+				{
+					var arr:Array = clip.getData(ClipboardFormats.FILE_LIST_FORMAT) as Array;
+					for(var i:int; i<arr.length; ++i)
+					{
+						var file:File = arr[i] as File;
+						if(file && (file.isDirectory || file.extension.toLowerCase() != SWFExtion))
+						{
+							return;
+						}
+					}
+				}
+				NativeDragManager.acceptDragDrop(this);
+			}
+			
+			protected function nativeDragDropHandler(event:NativeDragEvent):void
+			{
+				// TODO Auto-generated method stub
+				trace(event);
+				var clip:Clipboard = event.clipboard;
+				if(clip.hasFormat(ClipboardFormats.FILE_LIST_FORMAT))
+				{
+					var arr:Array = clip.getData(ClipboardFormats.FILE_LIST_FORMAT) as Array;
+					var file:File = arr[0] as File;
+					if(file && !file.isDirectory)
+					{
+						setInFile(file);
+					}
+				}
+			}
+			
+			protected function inFileBt_clickHandler(event:MouseEvent):void
+			{
+				var filter:FileFilter = new FileFilter("Swf File", "*.swf;*.SWF");
+				
+				var file:File = File.desktopDirectory;
+				file.browseForOpen("Select a Swf file", [filter]);
+				file.addEventListener(Event.SELECT, onInFileSelected);
+			}
+			
+			protected function onInFileSelected(event:Event):void
+			{
+				var file:File = event.target as File;
+				if(file && !file.isDirectory && file.extension.toLowerCase() == SWFExtion)
+				{
+					setInFile(file);
+				}
+				file.removeEventListener(Event.SELECT, onInFileSelected);
+			}
+			
+			protected function outFileBt_clickHandler(event:MouseEvent):void
+			{
+			}
+			
+			protected function startBt_clickHandler(event:MouseEvent):void
+			{
+				startTransform();
+			}
+			
+			private function setInFile(file:File):void
+			{
+				if(file.isDirectory)return;
+				
+				inSwfFilePath = file.nativePath;
+				inSwfFile.text = inSwfFilePath;
+				//
+				var dic:File = file.parent;
+				var outFile:File = dic.resolvePath(file.name.replace(file.extension, MP4Extion));
+				setOutFile(outFile);
+			}
+			
+			
+			
+			private function setOutFile(file:File):void
+			{
+				if(file.isDirectory)return;
+				
+				outMp4FilePath = file.nativePath;
+				outMp4File.text = outMp4FilePath;
+				//
+				if(file.exists)
+				{
+					file.deleteFile();
+				}
+				//
+				var dic:File = file.parent;
+				var tmpDir:File = dic.resolvePath("TMP_"+file.name.replace("."+file.extension, ""));
+				setTempDirectory(tmpDir);
+			}
+			
+			private function setTempDirectory(directory:File):void
+			{
+				tmpDirectoryPath = directory.nativePath;
+				if(directory.exists)
+				{
+					if(directory.isDirectory)
+					{
+						directory.deleteDirectory(true);
+					}
+					else
+					{
+						directory.deleteFile();
+					}
+				}
+				directory.createDirectory();
+				
+				log("Temp Directory Created At: " + directory.nativePath);
+			}
+			
+			private function log(...arg):void
+			{
+				txtArea.appendText(arg.join(",") + "\n");
+			}
+			
+			private function startTransform():void
+			{
+				log("Start Transforming....");
+				
+				step1_readBytes();
+			}
+			
+			
+			private function step1_readBytes():void
+			{
+				var file:File = new File(inSwfFilePath);
+				var stream:FileStream = new FileStream();
+				stream.open(file, FileMode.READ);
+				
+				var fileBytes:ByteArray = new ByteArray();
+				stream.readBytes(fileBytes);
+				stream.close();
+				
+				log("Read Input File End");
+				
+				step2_parseSwfBytes(fileBytes);
+			}
+			
+			private function step2_parseSwfBytes(fileBytes:ByteArray):void
+			{
+				var swf:SWF = new SWF(fileBytes);
+				frameCount = swf.frameCount;
+				frameRate = swf.frameRate;
+				outputWidth = swf.frameSize.rect.width;
+				outputHeight = swf.frameSize.rect.height;
+				
+				var background:TagSetBackgroundColor = swf.getBackgroundColorTag() as TagSetBackgroundColor;
+				if(background)
+				{
+					outputBgColor = background.color;
+				}
+				
+				log("Parse Swf File End");
+				log(swf.toString());
+				log(background.toString());
+				
+				step3_parseDisplayObject(fileBytes);
+			}
+			
+			private function step3_parseDisplayObject(fileBytes:ByteArray):void
+			{
+				var loader:Loader = new Loader();
+				loader.contentLoaderInfo.addEventListener(Event.COMPLETE, onLoaderComplete);
+				loader.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, onLoaderError);
+				
+				var context:LoaderContext = new LoaderContext();
+				context.allowCodeImport = true;
+				loader.loadBytes(fileBytes, context);
+			}
+			
+			protected function onLoaderError(event:IOErrorEvent):void
+			{
+				var loader:Loader = (event.target as LoaderInfo).loader;
+				if(loader)
+				{
+					loader.contentLoaderInfo.removeEventListener(Event.COMPLETE, onLoaderComplete);
+					loader.contentLoaderInfo.removeEventListener(IOErrorEvent.IO_ERROR, onLoaderError);
+				}
+				log("Parse to Display Object Error!");
+			}
+			
+			protected function onLoaderComplete(event:Event):void
+			{
+				var loader:Loader = (event.target as LoaderInfo).loader;
+				if(loader)
+				{
+					loader.contentLoaderInfo.removeEventListener(Event.COMPLETE, onLoaderComplete);
+					loader.contentLoaderInfo.removeEventListener(IOErrorEvent.IO_ERROR, onLoaderError);
+				}
+				
+				loadedSwf = loader.content as MovieClip;
+				if(loadedSwf)
+				{
+					stopClip(loadedSwf);
+					gotoFrame(loadedSwf, 0);
+					
+					log("Parse to Display Object Success!");
+					log("Start Save Frame Image!");
+					
+					if(!timer)
+					{
+						timer = new Timer(30);
+						timer.addEventListener(TimerEvent.TIMER, onTimerStep);
+					}
+					else
+					{
+						timer.stop();
+						timer.reset();
+					}
+					counter = 0;
+					timer.start();
+				}
+			}
+			
+			
+			
+			protected function onTimerStep(event:TimerEvent):void
+			{
+				counter++;
+				if(counter <= frameCount)
+				{
+					log("Save Frame Image: "+counter);
+					gotoFrame(loadedSwf, counter);
+					saveFrame();
+				}
+				else
+				{
+					timer.stop();
+					//
+					log("Start Merge into MP4");
+					
+					step4_MergeMp4();
+				}
+			}
+			
+			private function saveFrame():void
+			{
+				var bitmapData:BitmapData = new BitmapData(outputWidth, outputHeight, false, outputBgColor);
+				offsetMatrix.scale(scaleFactor, scaleFactor);
+				bitmapData.draw(loadedSwf, offsetMatrix);
+				var bytes:ByteArray = com.adobe.images.PNGEncoder.encode(bitmapData);
+				
+				
+				var increment:String = "";
+				if(frameCount>1)
+				{
+					increment = separator + padNumber(counter, frameCount);
+				}
+				var tmpPngFile:File = new File(tmpDirectoryPath);
+				tmpPngFile = tmpPngFile.resolvePath("TMP"+increment+".png");
+				
+				var stream:FileStream = new FileStream();
+				stream.open(tmpPngFile, FileMode.WRITE);
+				stream.writeBytes(bytes);
+				
+				stream.close();
+				bitmapData.dispose();
+			}
+			
+			private function padNumber(input:int, target:int):String 
+			{
+				var out:String = input.toString();
+				var targetCount:int = target.toString().length;
+				while(out.length < targetCount) {
+					out = '0' + out;
+				}
+				return out;
+			}
+			
+			private function stopClip(inMc:MovieClip):void
+			{
+				var l:int = inMc.numChildren;
+				for (var i:int = 0; i < l; i++) 
+				{
+					var mc:MovieClip = inMc.getChildAt(i) as MovieClip;
+					if(mc) 
+					{
+						mc.stop();
+						if(mc.numChildren > 0) 
+						{
+							stopClip(mc);
+						}
+					}
+				}
+				inMc.stop();
+			}
+			
+			private function gotoFrame(inMc:MovieClip, frameNo:int):void 
+			{
+				var l:int = inMc.numChildren;
+				for (var i:int = 0; i < l; i++) 
+				{
+					var mc:MovieClip = inMc.getChildAt(i) as MovieClip;
+					if(mc) 
+					{
+						mc.gotoAndStop(frameNo % (inMc.totalFrames + 1));
+						if(mc.numChildren > 0) 
+						{
+							gotoFrame(mc, frameNo);
+						}
+					}
+				}
+				inMc.gotoAndStop(frameNo % inMc.totalFrames);
+			}
+			
+			private function step4_MergeMp4():void
+			{
+				var ffmpeg:File = new File(Configer.getInstance().ffmpegPath());
+				//var cmd:File = new File(Configer.getInstance().cmdPath());
+				
+				var info:NativeProcessStartupInfo = new NativeProcessStartupInfo();
+				info.executable = ffmpeg;
+				
+				//ffmpeg -f image2 -i img/tmpImg%3d.jpg -vcodec libx264 -threads 0 -r 25 -g 50 -b 500k -y out.mp4
+				var args:Vector.<String> = new Vector.<String>();
+				args.push("-f");
+				args.push("image2");
+				args.push("-i");
+				args.push(tmpDirectoryPath+"\\"+"TMP_%"+(frameCount.toString().length)+"d.png");
+				args.push("-vcodec");
+				args.push("libx264");
+				args.push("-threads");
+				args.push("0");
+				args.push("-r");
+				args.push(int(frameRate).toString());
+				args.push("-g");
+				args.push("50");
+				args.push("-b");
+				args.push("500k");
+				args.push("-y");
+				args.push(outMp4FilePath);
+				
+				info.arguments = args;
+				
+				cleanProcess();
+				process = new NativeProcess();
+				process.addEventListener(ProgressEvent.STANDARD_OUTPUT_DATA, onProcessOutputData);
+				process.addEventListener(ProgressEvent.STANDARD_ERROR_DATA, onProcessErrorData);
+				process.addEventListener(NativeProcessExitEvent.EXIT, onProcessExit);
+				process.addEventListener(IOErrorEvent.STANDARD_OUTPUT_IO_ERROR, onProcessIOError);
+				process.addEventListener(IOErrorEvent.STANDARD_ERROR_IO_ERROR, onProcessIOError);
+				process.start(info);
+			}
+			
+			private function cleanProcess():void
+			{
+				if(process)
+				{
+					process.removeEventListener(ProgressEvent.STANDARD_OUTPUT_DATA, onProcessOutputData);
+					process.removeEventListener(ProgressEvent.STANDARD_ERROR_DATA, onProcessErrorData);
+					process.removeEventListener(NativeProcessExitEvent.EXIT, onProcessExit);
+					process.removeEventListener(IOErrorEvent.STANDARD_OUTPUT_IO_ERROR, onProcessIOError);
+					process.removeEventListener(IOErrorEvent.STANDARD_ERROR_IO_ERROR, onProcessIOError);
+					process = null;
+				}
+			}
+			
+			protected function onProcessIOError(event:IOErrorEvent):void
+			{
+				//trace("onIOError");
+				log("onProcessIOError");
+				cleanProcess();
+			}
+			
+			protected function onProcessErrorData(event:ProgressEvent):void
+			{
+				//var process:NativeProcess = event.target as NativeProcess;
+				//trace("Got:" + process.standardError.readUTFBytes(process.standardError.bytesAvailable));
+			}
+			
+			protected function onProcessOutputData(event:ProgressEvent):void
+			{
+				//trace("onOutputData");
+			}
+			
+			protected function onProcessExit(event:NativeProcessExitEvent):void
+			{
+				log("Mp4 Merge Successed!");
+				
+				step5_cleanTempFile();
+				log("Temp Files Cleaned!");
+				
+				if(bStartFromCmd)
+				{
+					nativeApplication.exit();
+				}
+			}
+			
+			private function step5_cleanTempFile():void
+			{
+				var tmp:File = new File(tmpDirectoryPath);
+				if(tmp.exists)
+				{
+					if(tmp.isDirectory)
+					{
+						tmp.deleteDirectory(true);
+					}
+					else
+					{
+						tmp.deleteFile();
+					}
+				}
+			}
+			
+			
+			
+		]]>
+	</fx:Script>
+	
+	<fx:Declarations>
+		<!-- 将非可视元素（例如服务、值对象）放在此处 -->
+	</fx:Declarations>
+	<s:Label x="10" y="16" text="Swf文件："/>
+	<s:TextInput id="inSwfFile" x="65" y="10" width="336"/>
+	<s:Button id="inFileBt" x="409" y="10" width="51" label="选择" click="inFileBt_clickHandler(event)"/>
+	<s:Label x="10" y="45" text="Mp4文件："/>
+	<s:TextInput id="outMp4File" x="65" y="40" width="336"/>
+	<s:Button id="outFileBt" x="409" y="39" width="52" label="选择"
+			  click="outFileBt_clickHandler(event)" enabled="false"/>
+	<s:Button id="startBt" x="470" y="10" height="50" label="开始" click="startBt_clickHandler(event)"/>
+	<s:TextArea id="txtArea" x="10" y="70" width="530" height="320" editable="false"/>
+</s:WindowedApplication>
