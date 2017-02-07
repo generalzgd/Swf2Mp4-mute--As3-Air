@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <data>
-	<cmd>C:\\Windows\\System32\\cmd.exe</cmd>
-	<ffmpeg>D:\\ffmpeg\\bin\\ffmpeg.exe</ffmpeg> 
+	<cmd></cmd>
+	<ffmpeg></ffmpeg>
 </data>

@@ -126,6 +126,7 @@ package zgd
 			else
 			{
 				timer.stop();
+				NativeApplication.nativeApplication.dispatchEvent(new Event(Event.EXITING));
 				NativeApplication.nativeApplication.exit();
 			}
 		}

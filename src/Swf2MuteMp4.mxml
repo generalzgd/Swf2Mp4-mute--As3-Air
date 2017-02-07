@@ -6,7 +6,8 @@
 					   applicationComplete="applicationCompleteHandler(event)"
 					   fontSize="12" invoke="invokeHandler(event)"
 					   nativeDragDrop="nativeDragDropHandler(event)"
-					   nativeDragEnter="nativeDragEnterHandler(event)" showStatusBar="false">
+					   nativeDragEnter="nativeDragEnterHandler(event)" 
+					   showStatusBar="false">
 	
 	<fx:Script>
 		<![CDATA[
@@ -18,6 +19,7 @@
 			import mx.events.FlexEvent;
 			
 			import zgd.Configer;
+			import zgd.ForcibleLoader;
 			
 			private var inSwfFilePath:String;
 			private var outMp4FilePath:String;
@@ -80,7 +82,7 @@
 			
 			protected function applicationCompleteHandler(event:FlexEvent):void
 			{
-				
+				nativeApplication.addEventListener(Event.EXITING, onExitApp);
 			}
 			
 			protected function nativeDragEnterHandler(event:NativeDragEvent):void
@@ -271,15 +273,16 @@
 			protected function onLoaderComplete(event:Event):void
 			{
 				var loader:Loader = (event.target as LoaderInfo).loader;
-				if(loader)
-				{
-					loader.contentLoaderInfo.removeEventListener(Event.COMPLETE, onLoaderComplete);
-					loader.contentLoaderInfo.removeEventListener(IOErrorEvent.IO_ERROR, onLoaderError);
-				}
 				
-				loadedSwf = loader.content as MovieClip;
-				if(loadedSwf)
+				if(loader.content is MovieClip)
 				{
+					 if(loader)
+					{
+						loader.contentLoaderInfo.removeEventListener(Event.COMPLETE, onLoaderComplete);
+						loader.contentLoaderInfo.removeEventListener(IOErrorEvent.IO_ERROR, onLoaderError);
+					} 
+					
+					loadedSwf = loader.content as MovieClip;
 					stopClip(loadedSwf);
 					gotoFrame(loadedSwf, 0);
 					
@@ -299,9 +302,12 @@
 					counter = 0;
 					timer.start();
 				}
+				else if(loader.content is AVM1Movie)
+				{
+					var fLoader:ForcibleLoader = new ForcibleLoader(loader);
+					fLoader.load(new URLRequest(inSwfFilePath));
+				}
 			}
-			
-			
 			
 			protected function onTimerStep(event:TimerEvent):void
 			{
@@ -394,7 +400,17 @@
 			
 			private function step4_MergeMp4():void
 			{
-				var ffmpeg:File = new File(Configer.getInstance().ffmpegPath());
+				var ffmpeg:File;
+				var ffPath:String = Configer.getInstance().ffmpegPath();
+				if(!ffPath)
+				{
+					ffmpeg = File.applicationDirectory.resolvePath("assets/ffmpeg.exe");
+				}
+				else
+				{
+					ffmpeg = new File(ffPath);
+				}
+				
 				//var cmd:File = new File(Configer.getInstance().cmdPath());
 				
 				var info:NativeProcessStartupInfo = new NativeProcessStartupInfo();
@@ -492,6 +508,11 @@
 			}
 			
 			
+			
+			protected function onExitApp(event:Event):void
+			{
+				trace("onExitApp");
+			}
 			
 		]]>
 	</fx:Script>
